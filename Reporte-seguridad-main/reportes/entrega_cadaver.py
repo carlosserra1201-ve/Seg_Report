@@ -1,11 +1,15 @@
 import urllib.parse
 from datetime import datetime
 import zoneinfo
+import httpx  # Importado para enviar los datos a Google Sheets
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     CommandHandler, CallbackQueryHandler, MessageHandler,
     filters, ContextTypes, ConversationHandler
 )
+
+# URL obtenida tras desplegar el Webhook en Google Apps Script (Reemplazar con la tuya)
+URL_WEBHOOK_SHEETS = "https://script.google.com/macros/s/TU_SCRIPT_ID_AQUI/exec"
 
 # Estados de la conversación
 (
@@ -37,6 +41,16 @@ def obtener_saludo_y_fecha():
     mes_nombre = MESES[ahora.month - 1]
     fecha_str = f"*{dia_nombre}, {ahora.day} de {mes_nombre}*"
     return saludo, fecha_str
+
+async def enviar_a_google_sheets(datos: dict):
+    """Envía la información del reporte de forma asíncrona a Google Sheets."""
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(URL_WEBHOOK_SHEETS, json=datos, follow_redirects=True)
+            return response.status_code == 200
+    except Exception as e:
+        print(f"Error al enviar datos a Google Sheets: {e}")
+        return False
 
 async def iniciar_entrega(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = "*ENTREGA DE CADÁVER*\n\nPor favor, escriba el *Nombre y Apellido* del paciente:"
@@ -219,6 +233,38 @@ async def generar_reporte_final(message_obj, context: ContextTypes.DEFAULT_TYPE)
     lineas_reporte.append(f"*Observaciones del Servicio:*\n{nota_cierre}")
 
     texto_reporte = "\n".join(lineas_reporte)
+
+    # ---------------------------------------------------------------------
+    # REGISTRO EN GOOGLE SHEETS
+    # ---------------------------------------------------------------------
+    tz = zoneinfo.ZoneInfo("America/Caracas")
+    ahora = datetime.now(tz)
+    
+    # Extraer la fecha del deceso si viene combinada con hora o formatearla
+    fecha_deceso = context.user_data['fecha_hora_deceso']
+    hora_deceso = context.user_data['fecha_hora_deceso']
+
+    datos_hoja = {
+        "tipo_reporte": "cadaver",
+        "marca_temporal": ahora.strftime("%Y-%m-%d %H:%M:%S"),
+        "fecha_entrega": ahora.strftime("%Y-%m-%d"),
+        "quien_entrega": persona_entrega,
+        "nombre_difunto": context.user_data['nombre_paciente'],
+        "cedula": context.user_data['cedula_paciente'],
+        "edad": context.user_data['edad_paciente'],
+        "sexo": context.user_data['sexo_paciente'],
+        "fecha_deceso": fecha_deceso,
+        "hora_deceso": hora_deceso,
+        "causa_deceso": context.user_data['causa_deceso'],
+        "num_acta": context.user_data['num_acta'],
+        "solvencia_por": context.user_data['persona_solvencia'],
+        "quien_retira": f"{context.user_data['tipo_retira']} - {context.user_data['nombre_entidad']}",
+        "responsable_recibir": context.user_data['responsable_retira']
+    }
+
+    # Envío asíncrono a Google Sheets
+    await enviar_a_google_sheets(datos_hoja)
+    # ---------------------------------------------------------------------
 
     texto_encoded = urllib.parse.quote(texto_reporte)
     url_whatsapp = f"https://wa.me/?text={texto_encoded}"
