@@ -1,0 +1,222 @@
+import urllib.parse
+from datetime import datetime
+import zoneinfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    CommandHandler, CallbackQueryHandler, MessageHandler,
+    filters, ContextTypes, ConversationHandler
+)
+
+# Estados de la conversación
+(
+    TIPO_MOVIMIENTO, ORIGEN_DESTINO, PERSONA_TRASLADO,
+    CANT_INGRESAN, NUM_INGRESAN, CANT_SALEN, NUM_SALEN,
+    CANTIDAD_BOMBONAS, NUMERACION_BOMBONAS, SEGURIDAD_JAULA,
+    ADICIONAL_PREGUNTA, INFO_ADICIONAL
+) = range(12)
+
+TIPOS_MOVIMIENTO = ["Entrada", "Salida", "Reemplazo"]
+
+DÍAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+
+def obtener_saludo_y_fecha():
+    tz = zoneinfo.ZoneInfo("America/Caracas")
+    ahora = datetime.now(tz)
+    hora = ahora.hour
+
+    if 5 <= hora < 12:
+        saludo = "*Buenos días.*"
+    elif 12 <= hora < 19:
+        saludo = "*Buenas tardes.*"
+    else:
+        saludo = "*Buenas noches.*"
+    
+    dia_nombre = DÍAS[ahora.weekday()]
+    mes_nombre = MESES[ahora.month - 1]
+    fecha_str = f"*{dia_nombre}, {ahora.day} de {mes_nombre}*"
+    return saludo, fecha_str
+
+async def iniciar_oxigeno(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [[InlineKeyboardButton(tipo, callback_data=f"mov_{tipo}")] for tipo in TIPOS_MOVIMIENTO]
+    
+    texto = "*MOVILIZACIÓN DE BOMBONAS DE OXÍGENO*\n\nSeleccione el *Tipo de Movimiento*:"
+    
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else:
+        await update.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        
+    return TIPO_MOVIMIENTO
+
+async def procesar_tipo_movimiento(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    tipo = query.data.replace("mov_", "")
+    context.user_data['tipo_movimiento'] = tipo
+
+    if tipo == "Entrada":
+        prompt = "Escriba el *Origen* de la bombona:"
+    elif tipo == "Salida":
+        prompt = "Escriba el *Destino* de la bombona:"
+    else:  # Reemplazo
+        prompt = "Escriba el *Área de Reemplazo / Destino* de las bombonas:"
+
+    await query.message.reply_text(prompt, parse_mode="Markdown")
+    return ORIGEN_DESTINO
+
+async def recibir_origen_destino(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['origen_destino'] = update.message.text.strip()
+    await update.message.reply_text("Escriba el *Nombre y Apellido* de la persona que realiza el traslado:", parse_mode="Markdown")
+    return PERSONA_TRASLADO
+
+async def recibir_persona_traslado(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['persona_traslado'] = update.message.text.strip()
+    tipo = context.user_data['tipo_movimiento']
+
+    if tipo == "Reemplazo":
+        await update.message.reply_text("Escriba la *Cantidad de bombonas que INGRESAN*:", parse_mode="Markdown")
+        return CANT_INGRESAN
+    elif tipo == "Entrada":
+        await update.message.reply_text("Escriba la *Cantidad de bombonas que ingresan*:", parse_mode="Markdown")
+        return CANTIDAD_BOMBONAS
+    else:  # Salida
+        await update.message.reply_text("Escriba la *Cantidad de bombonas que salen*:", parse_mode="Markdown")
+        return CANTIDAD_BOMBONAS
+
+# --- FLUJO EXCLUSIVO PARA REEMPLAZO ---
+async def recibir_cant_ingresan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['cant_ingresan'] = update.message.text.strip()
+    await update.message.reply_text("Escriba la *Numeración* de las bombonas que INGRESAN:", parse_mode="Markdown")
+    return NUM_INGRESAN
+
+async def recibir_num_ingresan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['num_ingresan'] = update.message.text.strip()
+    await update.message.reply_text("Escriba la *Cantidad de bombonas que SALEN*:", parse_mode="Markdown")
+    return CANT_SALEN
+
+async def recibir_cant_salen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['cant_salen'] = update.message.text.strip()
+    await update.message.reply_text("Escriba la *Numeración* de las bombonas que SALEN:", parse_mode="Markdown")
+    return NUM_SALEN
+
+async def recibir_num_salen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['num_salen'] = update.message.text.strip()
+    await update.message.reply_text("Escriba el *Nombre y Apellido* del personal de seguridad que abre la jaula de oxígeno:", parse_mode="Markdown")
+    return SEGURIDAD_JAULA
+
+# --- FLUJO NORMAL (ENTRADA / SALIDA) ---
+async def recibir_cantidad_bombonas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['cantidad_bombonas'] = update.message.text.strip()
+    await update.message.reply_text("Escriba la *Numeración* de las bombonas movilizadas:", parse_mode="Markdown")
+    return NUMERACION_BOMBONAS
+
+async def recibir_numeracion_bombonas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['numeracion_bombonas'] = update.message.text.strip()
+    await update.message.reply_text("Escriba el *Nombre y Apellido* del personal de seguridad que abre la jaula de oxígeno:", parse_mode="Markdown")
+    return SEGURIDAD_JAULA
+
+# --- CIERRE Y PREGUNTA ADICIONAL ---
+async def recibir_seguridad_jaula(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['seguridad_jaula'] = update.message.text.strip()
+
+    keyboard = [
+        [InlineKeyboardButton("Sí", callback_data="adic_si")],
+        [InlineKeyboardButton("No", callback_data="adic_no")]
+    ]
+    await update.message.reply_text("*¿Desea añadir alguna observación adicional al reporte?*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    return ADICIONAL_PREGUNTA
+
+async def respuesta_adicional(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "adic_si":
+        await query.message.reply_text("Escriba la observación adicional:")
+        return INFO_ADICIONAL
+    else:
+        context.user_data['info_adicional'] = None
+        return await generar_reporte_final(query.message, context)
+
+async def recibir_info_adicional(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['info_adicional'] = update.message.text.strip()
+    return await generar_reporte_final(update.message, context)
+
+async def generar_reporte_final(message_obj, context: ContextTypes.DEFAULT_TYPE):
+    saludo, fecha_str = obtener_saludo_y_fecha()
+
+    tipo_mov = context.user_data['tipo_movimiento']
+
+    lineas_reporte = [
+        f"{saludo}",
+        "*Reporte de Servicio*",
+        "*Movilización de Bombonas de Oxígeno*",
+        f"{fecha_str}\n",
+        f"*Tipo de Movimiento:* {tipo_mov}"
+    ]
+
+    if tipo_mov == "Reemplazo":
+        lineas_reporte.extend([
+            f"*Área de Reemplazo / Destino:* {context.user_data['origen_destino']}",
+            f"*Persona que Traslada:* {context.user_data['persona_traslado']}",
+            f"*Cantidad que Ingresa:* {context.user_data['cant_ingresan']}",
+            f"*Numeración Ingreso:* {context.user_data['num_ingresan']}",
+            f"*Cantidad que Sale:* {context.user_data['cant_salen']}",
+            f"*Numeración Salida:* {context.user_data['num_salen']}"
+        ])
+    else:
+        etiqueta_ub = "Origen" if tipo_mov == "Entrada" else "Destino"
+        lineas_reporte.extend([
+            f"*{etiqueta_ub}:* {context.user_data['origen_destino']}",
+            f"*Persona que Traslada:* {context.user_data['persona_traslado']}",
+            f"*Cantidad Movilizada:* {context.user_data['cantidad_bombonas']}",
+            f"*Numeración:* {context.user_data['numeracion_bombonas']}"
+        ])
+
+    lineas_reporte.append(f"*Seguridad (Apertura de Jaula):* {context.user_data['seguridad_jaula']}")
+
+    info_adic = context.user_data.get('info_adicional')
+    if info_adic:
+        lineas_reporte.append(f"*Observaciones Adicionales:* {info_adic}")
+
+    texto_reporte = "\n".join(lineas_reporte)
+
+    texto_encoded = urllib.parse.quote(texto_reporte)
+    url_whatsapp = f"https://wa.me/?text={texto_encoded}"
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Compartir en WhatsApp", url=url_whatsapp)],
+        [InlineKeyboardButton("Nuevo Reporte", callback_data="volver_menu")]
+    ])
+
+    await message_obj.reply_text(f"*REPORTE GENERADO:*\n\n{texto_reporte}", reply_markup=keyboard, parse_mode="Markdown")
+    return ConversationHandler.END
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Reporte de Movilización de Oxígeno cancelado.")
+    return ConversationHandler.END
+
+# Exportación del Handler
+oxigeno_handler = ConversationHandler(
+    entry_points=[
+        CommandHandler('oxigeno', iniciar_oxigeno),
+        CallbackQueryHandler(iniciar_oxigeno, pattern='^iniciar_oxigeno$')
+    ],
+    states={
+        TIPO_MOVIMIENTO: [CallbackQueryHandler(procesar_tipo_movimiento)],
+        ORIGEN_DESTINO: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_origen_destino)],
+        PERSONA_TRASLADO: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_persona_traslado)],
+        CANT_INGRESAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_cant_ingresan)],
+        NUM_INGRESAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_num_ingresan)],
+        CANT_SALEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_cant_salen)],
+        NUM_SALEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_num_salen)],
+        CANTIDAD_BOMBONAS: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_cantidad_bombonas)],
+        NUMERACION_BOMBONAS: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_numeracion_bombonas)],
+        SEGURIDAD_JAULA: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_seguridad_jaula)],
+        ADICIONAL_PREGUNTA: [CallbackQueryHandler(respuesta_adicional)],
+        INFO_ADICIONAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_info_adicional)],
+    },
+    fallbacks=[CommandHandler('cancel', cancel)]
+)
