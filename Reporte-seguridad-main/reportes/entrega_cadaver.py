@@ -1,27 +1,26 @@
 import urllib.parse
 from datetime import datetime
 import zoneinfo
-import httpx  # Importado para enviar los datos a Google Sheets
+import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     CommandHandler, CallbackQueryHandler, MessageHandler,
     filters, ContextTypes, ConversationHandler
 )
 
-# URL obtenida tras desplegar el Webhook en Google Apps Script (Reemplazar con la tuya)
-URL_WEBHOOK_SHEETS = "https://script.google.com/macros/s/AKfycbxEkuQPuThWJ4Y4Ce856X3yptJM4YPFW79Q6b1XGAszgGhWFbKH-r7hoA7hW4oxGQrc/exec"
+# URL del Webhook de Google Apps Script
+URL_WEBHOOK_SHEETS = "https://script.google.com/macros/s/TU_SCRIPT_ID_AQUI/exec"
 
-# Estados de la conversación
+# Estados de la conversación (Se añade FECHA_DECESO y HORA_DECESO por separado)
 (
     NOMBRE, CEDULA, EDAD, SEXO, LUGAR_FALLECIMIENTO, CAUSA_DECESO,
-    FECHA_HORA_DECESO, HORA_INGRESO_MORGUE, HORA_SALIDA_MORGUE,
+    FECHA_DECESO, HORA_DECESO, HORA_INGRESO_MORGUE, HORA_SALIDA_MORGUE,
     TIPO_RETIRA, NOMBRE_ENTIDAD, RESPONSABLE_RETIRA,
     PERSONA_SOLVENCIA, NUM_ACTA, PERSONA_ENTREGA,
     ADICIONAL_PREGUNTA, INFO_ADICIONAL
-) = range(17)
+) = range(18)
 
 LUGARES_COMUNES = ["Emergencia", "UCI", "Hospitalización", "Pabellón"]
-
 DÍAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
 
@@ -43,7 +42,6 @@ def obtener_saludo_y_fecha():
     return saludo, fecha_str
 
 async def enviar_a_google_sheets(datos: dict):
-    """Envía la información del reporte de forma asíncrona a Google Sheets."""
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(URL_WEBHOOK_SHEETS, json=datos, follow_redirects=True)
@@ -113,13 +111,18 @@ async def procesar_lugar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await msg_obj.reply_text("Escriba la *Causa del Deceso*:", parse_mode="Markdown")
     return CAUSA_DECESO
 
-async def pedir_fecha_hora_deceso(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def pedir_fecha_deceso(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['causa_deceso'] = update.message.text.strip()
-    await update.message.reply_text("Escriba la *Fecha y Hora del Deceso* (ejemplo: 20/09 a las 14:30 hrs):", parse_mode="Markdown")
-    return FECHA_HORA_DECESO
+    await update.message.reply_text("Escriba la *Fecha del Deceso* (Formato: DD/MM/AA, ej. 31/10/26):", parse_mode="Markdown")
+    return FECHA_DECESO
+
+async def pedir_hora_deceso(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['fecha_deceso'] = update.message.text.strip()
+    await update.message.reply_text("Escriba la *Hora del Deceso* en formato militar (24 horas, ej. 14:30 hrs):", parse_mode="Markdown")
+    return HORA_DECESO
 
 async def pedir_hora_ingreso_morgue(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['fecha_hora_deceso'] = update.message.text.strip()
+    context.user_data['hora_deceso'] = update.message.text.strip()
     await update.message.reply_text("Escriba la *Hora de ingreso a la morgue* (ejemplo: 15:00 hrs):", parse_mode="Markdown")
     return HORA_INGRESO_MORGUE
 
@@ -211,7 +214,8 @@ async def generar_reporte_final(message_obj, context: ContextTypes.DEFAULT_TYPE)
         f"*Sexo:* {context.user_data['sexo_paciente']}",
         f"*Lugar de Fallecimiento:* {context.user_data['lugar_fallecimiento']}",
         f"*Causa del Deceso:* {context.user_data['causa_deceso']}",
-        f"*Fecha y Hora del Deceso:* {context.user_data['fecha_hora_deceso']}",
+        f"*Fecha del Deceso:* {context.user_data['fecha_deceso']}",
+        f"*Hora del Deceso:* {context.user_data['hora_deceso']}",
         f"*Hora de Ingreso a Morgue:* {context.user_data['hora_ingreso_morgue']}",
         f"*Hora de Salida de Morgue:* {context.user_data['hora_salida_morgue']}",
         f"*Retirado por:* {context.user_data['tipo_retira']}",
@@ -221,7 +225,6 @@ async def generar_reporte_final(message_obj, context: ContextTypes.DEFAULT_TYPE)
         f"*Número de Acta de Defunción:* {context.user_data['num_acta']}\n"
     ]
 
-    # Construcción de la nota de cierre formal
     persona_entrega = context.user_data['persona_entrega']
     info_adic = context.user_data.get('info_adicional')
 
@@ -235,34 +238,29 @@ async def generar_reporte_final(message_obj, context: ContextTypes.DEFAULT_TYPE)
     texto_reporte = "\n".join(lineas_reporte)
 
     # ---------------------------------------------------------------------
-    # REGISTRO EN GOOGLE SHEETS
+    # REGISTRO EN GOOGLE SHEETS (Cada dato a su respectiva columna)
     # ---------------------------------------------------------------------
     tz = zoneinfo.ZoneInfo("America/Caracas")
     ahora = datetime.now(tz)
-    
-    # Extraer la fecha del deceso si viene combinada con hora o formatearla
-    fecha_deceso = context.user_data['fecha_hora_deceso']
-    hora_deceso = context.user_data['fecha_hora_deceso']
 
     datos_hoja = {
         "tipo_reporte": "cadaver",
-        "marca_temporal": ahora.strftime("%Y-%m-%d %H:%M:%S"),
-        "fecha_entrega": ahora.strftime("%Y-%m-%d"),
-        "quien_entrega": persona_entrega,
-        "nombre_difunto": context.user_data['nombre_paciente'],
-        "cedula": context.user_data['cedula_paciente'],
-        "edad": context.user_data['edad_paciente'],
-        "sexo": context.user_data['sexo_paciente'],
-        "fecha_deceso": fecha_deceso,
-        "hora_deceso": hora_deceso,
-        "causa_deceso": context.user_data['causa_deceso'],
-        "num_acta": context.user_data['num_acta'],
-        "solvencia_por": context.user_data['persona_solvencia'],
-        "quien_retira": f"{context.user_data['tipo_retira']} - {context.user_data['nombre_entidad']}",
-        "responsable_recibir": context.user_data['responsable_retira']
+        "marca_temporal": ahora.strftime("%Y-%m-%d %H:%M:%S"),                          # Col 1
+        "fecha_entrega": ahora.strftime("%d/%m/%y"),                                    # Col 2
+        "quien_entrega": persona_entrega,                                               # Col 3
+        "nombre_difunto": context.user_data['nombre_paciente'],                         # Col 4
+        "cedula": context.user_data['cedula_paciente'],                                 # Col 5
+        "edad": context.user_data['edad_paciente'],                                     # Col 6
+        "sexo": context.user_data['sexo_paciente'],                                     # Col 7
+        "fecha_deceso": context.user_data['fecha_deceso'],                              # Col 8
+        "hora_deceso": context.user_data['hora_deceso'],                                # Col 9
+        "causa_deceso": context.user_data['causa_deceso'],                              # Col 10
+        "num_acta": context.user_data['num_acta'],                                      # Col 11
+        "solvencia_por": context.user_data['persona_solvencia'],                        # Col 12
+        "quien_retira": f"{context.user_data['tipo_retira']} - {context.user_data['nombre_entidad']}", # Col 13
+        "responsable_recibir": context.user_data['responsable_retira']                  # Col 14
     }
 
-    # Envío asíncrono a Google Sheets
     await enviar_a_google_sheets(datos_hoja)
     # ---------------------------------------------------------------------
 
@@ -296,8 +294,9 @@ entrega_cadaver_handler = ConversationHandler(
             CallbackQueryHandler(procesar_lugar),
             MessageHandler(filters.TEXT & ~filters.COMMAND, procesar_lugar)
         ],
-        CAUSA_DECESO: [MessageHandler(filters.TEXT & ~filters.COMMAND, pedir_fecha_hora_deceso)],
-        FECHA_HORA_DECESO: [MessageHandler(filters.TEXT & ~filters.COMMAND, pedir_hora_ingreso_morgue)],
+        CAUSA_DECESO: [MessageHandler(filters.TEXT & ~filters.COMMAND, pedir_fecha_deceso)],
+        FECHA_DECESO: [MessageHandler(filters.TEXT & ~filters.COMMAND, pedir_hora_deceso)],
+        HORA_DECESO: [MessageHandler(filters.TEXT & ~filters.COMMAND, pedir_hora_ingreso_morgue)],
         HORA_INGRESO_MORGUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, pedir_hora_salida_morgue)],
         HORA_SALIDA_MORGUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, pedir_tipo_retira)],
         TIPO_RETIRA: [CallbackQueryHandler(pedir_nombre_entidad)],
