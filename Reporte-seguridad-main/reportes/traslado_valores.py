@@ -240,6 +240,7 @@ async def generar_reporte_final(update: Update, context: ContextTypes.DEFAULT_TY
     marca_temporal = ahora.strftime("%Y-%m-%d %H:%M:%S")
 
     datos_hoja = {
+        "tipo_reporte": "traslado",
         "marca_temporal": marca_temporal,
         "persona_traslado": personal_involucrado,
         "fecha": fecha_formateada,
