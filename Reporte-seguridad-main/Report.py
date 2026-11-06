@@ -6,7 +6,6 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 )
 
-
 # Importar los handlers desde la carpeta reportes/ (Orden alfabético)
 from reportes.acta_emergencia import acta_handler
 from reportes.bienes_hallados import bienes_hallados_handler
@@ -17,14 +16,11 @@ from reportes.notificacion_deceso import deceso_handler
 from reportes.plantilla_guardia import plantilla_handler
 from reportes.traslado_valores import traslado_handler
 
-
 # Cargar variables de entorno (.env)
 load_dotenv()
 
-
 # Configuración de logs
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-
 
 async def start_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -40,7 +36,7 @@ async def start_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     texto = (
-        "SISTEMA DE REPORTES - GERENCIA DE SEGURIDAD INTEGRAL\n\n"
+        "*SISTEMA DE REPORTES - GERENCIA DE SEGURIDAD INTEGRAL*\n\n"
         "Bienvenido. Seleccione el tipo de reporte que desea realizar:"
     )
     
@@ -50,16 +46,13 @@ async def start_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.callback_query.answer()
         await update.callback_query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
 
-
 def build_app():
     TOKEN = os.getenv('TELEGRAM_TOKEN')
     
     if not TOKEN:
         raise ValueError("Error: La variable de entorno TELEGRAM_TOKEN no está configurada.")
 
-
     app = ApplicationBuilder().token(TOKEN).build()
-
 
     # Registrar todos los módulos de reportes con prioridad de disparo
     app.add_handler(acta_handler)
@@ -71,15 +64,12 @@ def build_app():
     app.add_handler(plantilla_handler)
     app.add_handler(traslado_handler)
 
-
     # Registrar comandos del menú general
     app.add_handler(CommandHandler('start', start_menu))
     app.add_handler(CommandHandler('menu', start_menu))
     app.add_handler(CallbackQueryHandler(start_menu, pattern='^volver_menu$'))
 
-
     return app
-
 
 if __name__ == '__main__':
     app = build_app()
