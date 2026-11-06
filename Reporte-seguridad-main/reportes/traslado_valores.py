@@ -1,14 +1,14 @@
 import urllib.parse
 from datetime import datetime
 import zoneinfo
-import httpx  # Requiere instalar httpx (pip install httpx)
+import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     CommandHandler, CallbackQueryHandler, MessageHandler,
     filters, ContextTypes, ConversationHandler
 )
 
-# URL obtenida tras desplegar el Webhook en Google Apps Script (Reemplazar con la tuya)
+# URL obtenida tras desplegar el Webhook en Google Apps Script
 URL_WEBHOOK_SHEETS = "https://script.google.com/macros/s/AKfycbxEkuQPuThWJ4Y4Ce856X3yptJM4YPFW79Q6b1XGAszgGhWFbKH-r7hoA7hW4oxGQrc/exec"
 
 # Estados de la conversación
@@ -24,7 +24,6 @@ DÍAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domin
 MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
 
 def obtener_saludo_y_fecha():
-    # Zona horaria de Caracas para corregir desfase en servidor
     tz = zoneinfo.ZoneInfo("America/Caracas")
     ahora = datetime.now(tz)
     hora = ahora.hour
@@ -44,8 +43,7 @@ def obtener_saludo_y_fecha():
 async def enviar_a_google_sheets(datos: dict):
     """Envía la información del traslado de forma asíncrona a Google Sheets."""
     try:
-        async with httpx.AsyncClient() as client:
-            # follow_redirects=True es fundamental para redirigir en Google Apps Script
+        async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(URL_WEBHOOK_SHEETS, json=datos, follow_redirects=True)
             return response.status_code == 200
     except Exception as e:
@@ -94,7 +92,6 @@ async def seleccionar_cajas(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Debe seleccionar al menos una caja.", show_alert=True)
             return CAJAS
 
-        # Pregunta la hora del traslado
         await query.message.reply_text("Escriba la *hora del traslado* (ejemplo: 10:30 am):", parse_mode="Markdown")
         return HORA
 
@@ -112,28 +109,17 @@ async def pedir_gestion_pago(update: Update, context: ContextTypes.DEFAULT_TYPE)
     data = query.data
 
     if data == "pago_nuevo":
-        context.user_data['esperando_nuevo'] = 'pago'
         await query.message.reply_text("Escriba el Nombre y Apellido del nuevo personal de Gestión de Pago:")
         return GESTION_PAGO
     else:
         context.user_data['personal_pago'] = data.replace("pago_", "")
         return await mostrar_menu_seguridad(query.message)
 
-async def guardar_nuevo_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def guardar_nuevo_pago(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nuevo_texto = update.message.text.strip()
-    tipo = context.user_data.get('esperando_nuevo')
-
-    if tipo == 'pago':
-        PERSONAL_PAGO.append(nuevo_texto)
-        context.user_data['personal_pago'] = nuevo_texto
-        return await mostrar_menu_seguridad(update.message)
-    elif tipo == 'seguridad':
-        PERSONAL_SEGURIDAD.append(nuevo_texto)
-        context.user_data['personal_seguridad'] = nuevo_texto
-        return await mostrar_menu_destino(update.message)
-    elif tipo == 'destino':
-        context.user_data['destino'] = nuevo_texto
-        return await pedir_policia(update.message)
+    PERSONAL_PAGO.append(nuevo_texto)
+    context.user_data['personal_pago'] = nuevo_texto
+    return await mostrar_menu_seguridad(update.message)
 
 async def mostrar_menu_seguridad(message):
     keyboard = [[InlineKeyboardButton(s, callback_data=f"seg_{s}")] for s in PERSONAL_SEGURIDAD]
@@ -147,12 +133,17 @@ async def pedir_seguridad(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     if data == "seg_nuevo":
-        context.user_data['esperando_nuevo'] = 'seguridad'
         await query.message.reply_text("Escriba el Nombre y Apellido del nuevo oficial de Seguridad:")
         return SEGURIDAD
     else:
         context.user_data['personal_seguridad'] = data.replace("seg_", "")
         return await mostrar_menu_destino(query.message)
+
+async def guardar_nuevo_seguridad(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    nuevo_texto = update.message.text.strip()
+    PERSONAL_SEGURIDAD.append(nuevo_texto)
+    context.user_data['personal_seguridad'] = nuevo_texto
+    return await mostrar_menu_destino(update.message)
 
 async def mostrar_menu_destino(message):
     keyboard = [[InlineKeyboardButton(b, callback_data=f"dest_{b}")] for b in DESTINOS_BANCOS]
@@ -166,12 +157,16 @@ async def pedir_destino(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     if data == "dest_nuevo":
-        context.user_data['esperando_nuevo'] = 'destino'
         await query.message.reply_text("Escriba el nombre del destino:")
         return DESTINO
     else:
         context.user_data['destino'] = data.replace("dest_", "")
         return await pedir_policia(query.message)
+
+async def guardar_nuevo_destino(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    nuevo_texto = update.message.text.strip()
+    context.user_data['destino'] = nuevo_texto
+    return await pedir_policia(update.message)
 
 async def pedir_policia(message):
     keyboard = [
@@ -208,12 +203,10 @@ async def generar_reporte_final(update: Update, context: ContextTypes.DEFAULT_TY
 
     saludo, fecha_str = obtener_saludo_y_fecha()
     
-    # Formatear las cajas seleccionadas una debajo de otra con guion para el mensaje
     cajas_lista = context.user_data['cajas_sel']
     cajas_formateadas = "\n".join([f"- {caja}" for caja in cajas_lista])
-    cajas_linea_unica = ", ".join(cajas_lista)  # Para la columna de Google Sheets
+    cajas_linea_unica = ", ".join(cajas_lista)
 
-    # Construcción del texto con la hora tras el destino
     texto_reporte = (
         f"{saludo}\n"
         f"*Reporte de Servicio*\n"
@@ -228,13 +221,9 @@ async def generar_reporte_final(update: Update, context: ContextTypes.DEFAULT_TY
         f"*Novedades:*\n{novedades}"
     )
 
-    # ---------------------------------------------------------------------
-    # REGISTRO EN GOOGLE SHEETS
-    # ---------------------------------------------------------------------
     tz = zoneinfo.ZoneInfo("America/Caracas")
     ahora = datetime.now(tz)
     
-    # Combinar el personal involucrado para la columna "Persona que realiza el traslado"
     personal_involucrado = f"Pago: {context.user_data['personal_pago']} | Seg: {context.user_data['personal_seguridad']}"
     fecha_formateada = ahora.strftime("%Y-%m-%d")
     marca_temporal = ahora.strftime("%Y-%m-%d %H:%M:%S")
@@ -251,11 +240,8 @@ async def generar_reporte_final(update: Update, context: ContextTypes.DEFAULT_TY
         "observaciones": f"Novedades: {novedades}"
     }
 
-    # Enviar al script en Google Sheets de forma asíncrona
     await enviar_a_google_sheets(datos_hoja)
-    # ---------------------------------------------------------------------
 
-    # Codificación para enlace de WhatsApp
     texto_encoded = urllib.parse.quote(texto_reporte)
     url_whatsapp = f"https://wa.me/?text={texto_encoded}"
 
@@ -282,15 +268,15 @@ traslado_handler = ConversationHandler(
         HORA: [MessageHandler(filters.TEXT & ~filters.COMMAND, pedir_hora)],
         GESTION_PAGO: [
             CallbackQueryHandler(pedir_gestion_pago),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, guardar_nuevo_nombre)
+            MessageHandler(filters.TEXT & ~filters.COMMAND, guardar_nuevo_pago)
         ],
         SEGURIDAD: [
             CallbackQueryHandler(pedir_seguridad),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, guardar_nuevo_nombre)
+            MessageHandler(filters.TEXT & ~filters.COMMAND, guardar_nuevo_seguridad)
         ],
         DESTINO: [
             CallbackQueryHandler(pedir_destino),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, guardar_nuevo_nombre)
+            MessageHandler(filters.TEXT & ~filters.COMMAND, guardar_nuevo_destino)
         ],
         POLICIA: [CallbackQueryHandler(pedir_novedades)],
         NOVEDADES: [
