@@ -367,11 +367,14 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
     saludo, fecha_str, dia_semana = obtener_saludo_y_fecha()
     tipo_guardia = context.user_data.get('tipo_guardia', 'Diurna')
 
-    # Calcular personal requerido según tipo de guardia y día de la semana (5 = Sábado, 6 = Domingo)
+    # Calcular personal requerido incluyendo al Supervisor (5 = Sábado, 6 = Domingo)
+    # Nocturno: 6 operadores + 1 supervisor = 7
+    # Diurno Fin de Semana: 7 operadores + 1 supervisor = 8
+    # Diurno Lunes a Viernes: 8 operadores + 1 supervisor = 9
     if tipo_guardia == "Nocturna":
-        requeridos = 6
+        requeridos = 7
     else:
-        requeridos = 7 if dia_semana >= 5 else 8
+        requeridos = 8 if dia_semana >= 5 else 9
 
     def fmt_lista(lista):
         return "\n".join([f"- {nombre}" for nombre in lista])
@@ -389,8 +392,8 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
     if especiales:
         pcm_bloques.append(f"*Guardias Especiales:*\n{fmt_lista(especiales)}")
 
-    # Total presentes (Titulares + Guardias Especiales)
-    total_presentes = len(titulares) + len(especiales)
+    # Total presentes: Titulares + Guardias Especiales + 1 (Supervisor)
+    total_presentes = len(titulares) + len(especiales) + 1
     linea_presentes = f"     _(Presentes {total_presentes} de {requeridos})_"
 
     libres = context.user_data.get('libres', [])
