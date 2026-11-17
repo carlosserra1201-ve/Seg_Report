@@ -534,16 +534,20 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
             f"*Sótano 5:* {context.user_data.get('sotano5_csp')}"
         )
 
+    separador = "----------------------------------"
+
     texto_reporte = (
         f"{saludo}\n"
         f"*Reporte de Servicio*\n"
         f"*Plantilla de Guardia {tipo_guardia}*\n"
-        f"{fecha_str}\n\n"
+        f"{fecha_str}\n"
+        f"{separador}\n"
         f"🛡️ *SEGURIDAD INTERNA PCM*\n"
         f"{linea_presentes_pcm}\n\n"
         f"{pcm_seccion}\n\n"
         f"{jdml_seccion}\n\n"
-        f"{csp_seccion}\n\n"
+        f"{csp_seccion}\n"
+        f"{separador}\n"
         f"*Novedades en Recepción:*\n{novedades}"
     )
 
