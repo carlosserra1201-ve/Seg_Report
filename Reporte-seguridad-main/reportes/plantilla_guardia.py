@@ -15,10 +15,11 @@ from telegram.ext import (
     TIENE_LIBRES, CANT_LIBRES, NOMBRES_LIBRES,
     TIENE_AUSENTES, CANT_AUSENTES, NOMBRES_AUSENTES,
     TIENE_VACACIONES, CANT_VACACIONES, NOMBRES_VACACIONES,
+    TIENE_PERMISOS, CANT_PERMISOS, NOMBRES_PERMISOS,
     COORD_JDML, POS_TRANSPORTE_JDML, POS_PROVEEDORES_JDML, POS_QUINTA_JDML, POS_PISO2_JDML, POS_CTRL_PCM_JDML, POS_CTRL_CORTIJOS_JDML,
     POS_PISO4_CSP, POS_EMERGENCIA_CSP, POS_REVISION_CSP, POS_SOTANO5_CSP,
     NOVEDADES
-) = range(26)
+) = range(29)
 
 DÍAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
@@ -53,6 +54,7 @@ async def iniciar_plantilla(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['libres'] = []
     context.user_data['ausentes'] = []
     context.user_data['vacaciones'] = []
+    context.user_data['permisos'] = []
 
     keyboard = [
         [InlineKeyboardButton("☀️ Diurna", callback_data="guardia_Diurna")],
@@ -241,7 +243,7 @@ async def respuesta_tiene_vacaciones(update: Update, context: ContextTypes.DEFAU
         await query.message.reply_text("Indique la *cantidad de personal de Vacaciones* (en números):", parse_mode="Markdown")
         return CANT_VACACIONES
     else:
-        return await pedir_coord_jdml(query.message)
+        return await preguntar_permisos(query.message)
 
 async def recibir_cant_vacaciones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = update.message.text.strip()
@@ -263,6 +265,48 @@ async def recibir_nombre_vacacion(update: Update, context: ContextTypes.DEFAULT_
         context.user_data['idx_vacacion'] = idx
         await update.message.reply_text(f"Escriba el Nombre y Apellido del *Personal de Vacaciones {idx}*:", parse_mode="Markdown")
         return NOMBRES_VACACIONES
+    else:
+        return await preguntar_permisos(update.message)
+
+# --- PERMISOS ---
+
+async def preguntar_permisos(message):
+    keyboard = [
+        [InlineKeyboardButton("Sí", callback_data="perm_si")],
+        [InlineKeyboardButton("No", callback_data="perm_no")]
+    ]
+    await message.reply_text("¿Hay *personal de Permiso*?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    return TIENE_PERMISOS
+
+async def respuesta_tiene_permisos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.data == "perm_si":
+        await query.message.reply_text("Indique la *cantidad de personal de Permiso* (en números):", parse_mode="Markdown")
+        return CANT_PERMISOS
+    else:
+        return await pedir_coord_jdml(query.message)
+
+async def recibir_cant_permisos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto = update.message.text.strip()
+    if not texto.isdigit() or int(texto) <= 0:
+        await update.message.reply_text("Por favor, ingrese un número mayor a 0:")
+        return CANT_PERMISOS
+    
+    context.user_data['cant_permisos'] = int(texto)
+    context.user_data['idx_permiso'] = 1
+    await update.message.reply_text("Escriba el Nombre y Apellido del *Personal de Permiso 1*:", parse_mode="Markdown")
+    return NOMBRES_PERMISOS
+
+async def recibir_nombre_permiso(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    nombre = update.message.text.strip()
+    context.user_data['permisos'].append(nombre)
+    idx = context.user_data['idx_permiso'] + 1
+    
+    if idx <= context.user_data['cant_permisos']:
+        context.user_data['idx_permiso'] = idx
+        await update.message.reply_text(f"Escriba el Nombre y Apellido del *Personal de Permiso {idx}*:", parse_mode="Markdown")
+        return NOMBRES_PERMISOS
     else:
         return await pedir_coord_jdml(update.message)
 
@@ -298,263 +342,4 @@ async def recibir_quinta_jdml(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # Si es Diurna, continuamos con las posiciones diurnas restantes de JDML
     if context.user_data.get('tipo_guardia') == "Diurna":
-        await update.message.reply_text("Escriba el Nombre y Apellido en *Piso 2*:", parse_mode="Markdown")
-        return POS_PISO2_JDML
-    else:
-        # Si es Nocturna, pasamos a CSP 24/7 (Revisión)
-        await update.message.reply_text("🛡️ *EMPRESA CSP 24/7*\n\nEscriba el Nombre y Apellido en *Revisión*:", parse_mode="Markdown")
-        return POS_REVISION_CSP
-
-async def recibir_piso2_jdml(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['piso2_jdml'] = update.message.text.strip()
-    await update.message.reply_text("Escriba el Nombre y Apellido en *Controlador PCM*:", parse_mode="Markdown")
-    return POS_CTRL_PCM_JDML
-
-async def recibir_ctrl_pcm_jdml(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['ctrl_pcm_jdml'] = update.message.text.strip()
-    await update.message.reply_text("Escriba el Nombre y Apellido en *Controlador Los Cortijos*:", parse_mode="Markdown")
-    return POS_CTRL_CORTIJOS_JDML
-
-# --- 3. EMPRESA CSP 24/7 ---
-
-async def recibir_ctrl_cortijos_jdml(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['ctrl_cortijos_jdml'] = update.message.text.strip()
-    
-    # Para guardia Diurna, CSP inicia en Piso 4
-    await update.message.reply_text("🛡️ *EMPRESA CSP 24/7*\n\nEscriba el Nombre y Apellido en *Piso 4*:", parse_mode="Markdown")
-    return POS_PISO4_CSP
-
-async def recibir_piso4_csp(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['piso4_csp'] = update.message.text.strip()
-    await update.message.reply_text("Escriba el Nombre y Apellido en *Emergencia*:", parse_mode="Markdown")
-    return POS_EMERGENCIA_CSP
-
-async def recibir_emergencia_csp(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['emergencia_csp'] = update.message.text.strip()
-    await update.message.reply_text("Escriba el Nombre y Apellido en *Revisión*:", parse_mode="Markdown")
-    return POS_REVISION_CSP
-
-async def recibir_revision_csp(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['revision_csp'] = update.message.text.strip()
-    await update.message.reply_text("Escriba el Nombre y Apellido en *Sótano 5*:", parse_mode="Markdown")
-    return POS_SOTANO5_CSP
-
-# --- NOVEDADES Y REPORTE FINAL ---
-
-async def pedir_novedades_plantilla(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['sotano5_csp'] = update.message.text.strip()
-    
-    keyboard = [
-        [InlineKeyboardButton("Sin novedades en la recepción", callback_data="nov_Sin novedades en la recepción de la guardia.")],
-        [InlineKeyboardButton("Registrar Novedad", callback_data="nov_registrar")]
-    ]
-    await update.message.reply_text("*¿Existe alguna novedad en el momento de la recepción de la guardia?*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-    return NOVEDADES
-
-async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.callback_query:
-        query = update.callback_query
-        await query.answer()
-        if query.data == "nov_registrar":
-            await query.message.reply_text("Escriba los detalles de la novedad:")
-            return NOVEDADES
-        novedades = query.data.replace("nov_", "")
-        msg_obj = query.message
-    else:
-        novedades = update.message.text.strip()
-        msg_obj = update.message
-
-    saludo, fecha_str, dia_semana = obtener_saludo_y_fecha()
-    tipo_guardia = context.user_data.get('tipo_guardia', 'Diurna')
-
-    # Calcular personal requerido PCM (5 = Sábado, 6 = Domingo)
-    # Nocturno: 7 | Diurno Fin de Semana: 8 | Diurno Lunes a Viernes: 9
-    if tipo_guardia == "Nocturna":
-        requeridos_pcm = 7
-    else:
-        requeridos_pcm = 8 if dia_semana >= 5 else 9
-
-    def fmt_lista(lista):
-        return "\n".join([f"- {nombre}" for nombre in lista])
-
-    def contar_presentes_puestos(lista_puestos):
-        return sum(1 for puesto in lista_puestos if "ausente" not in (puesto or "").lower())
-
-    # Bloques PCM con cantidades en formato de dos dígitos (:02d)
-    pcm_bloques = []
-
-    titulares = context.user_data.get('titulares', [])
-    if titulares:
-        pcm_bloques.append(f"*Operadores Titulares Presentes ({len(titulares):02d}):*\n{fmt_lista(titulares)}")
-    else:
-        pcm_bloques.append("*Operadores Titulares Presentes (00):*\n- Ninguno")
-
-    especiales = context.user_data.get('especiales', [])
-    if especiales:
-        pcm_bloques.append(f"*Guardias Especiales ({len(especiales):02d}):*\n{fmt_lista(especiales)}")
-
-    # Total presentes PCM: únicamente Titulares + Guardias Especiales
-    total_presentes_pcm = len(titulares) + len(especiales)
-    linea_presentes_pcm = f"     _(Presentes {total_presentes_pcm} de {requeridos_pcm})_"
-
-    libres = context.user_data.get('libres', [])
-    if libres:
-        pcm_bloques.append(f"*Personal Libre ({len(libres):02d}):*\n{fmt_lista(libres)}")
-
-    ausentes = context.user_data.get('ausentes', [])
-    if ausentes:
-        pcm_bloques.append(f"*Personal Ausente ({len(ausentes):02d}):*\n{fmt_lista(ausentes)}")
-
-    vacaciones = context.user_data.get('vacaciones', [])
-    if vacaciones:
-        pcm_bloques.append(f"*Personal de Vacaciones ({len(vacaciones):02d}):*\n{fmt_lista(vacaciones)}")
-
-    pcm_seccion = "\n\n".join(pcm_bloques)
-
-    # Construir JDML según tipo de guardia y calcular asistencia (Diurna: 7 | Nocturna: 3)
-    if tipo_guardia == "Diurna":
-        puestos_jdml = [
-            context.user_data.get('coord_jdml'),
-            context.user_data.get('transporte_jdml'),
-            context.user_data.get('proveedores_jdml'),
-            context.user_data.get('quinta_jdml'),
-            context.user_data.get('piso2_jdml'),
-            context.user_data.get('ctrl_pcm_jdml'),
-            context.user_data.get('ctrl_cortijos_jdml')
-        ]
-        requeridos_jdml = 7
-        presentes_jdml = contar_presentes_puestos(puestos_jdml)
-        linea_presentes_jdml = f"  _(Presentes {presentes_jdml} de {requeridos_jdml})_"
-
-        jdml_seccion = (
-            f"🛡️ *EMPRESA JDML*\n"
-            f"{linea_presentes_jdml}\n\n"
-            f"*Coordinador:* {context.user_data.get('coord_jdml')}\n"
-            f"*Transporte:* {context.user_data.get('transporte_jdml')}\n"
-            f"*Proveedores:* {context.user_data.get('proveedores_jdml')}\n"
-            f"*Quinta Fides:* {context.user_data.get('quinta_jdml')}\n"
-            f"*Piso 2:* {context.user_data.get('piso2_jdml')}\n"
-            f"*Controlador PCM:* {context.user_data.get('ctrl_pcm_jdml')}\n"
-            f"*Controlador Los Cortijos:* {context.user_data.get('ctrl_cortijos_jdml')}"
-        )
-    else:
-        puestos_jdml = [
-            context.user_data.get('coord_jdml'),
-            context.user_data.get('transporte_jdml'),
-            context.user_data.get('quinta_jdml')
-        ]
-        requeridos_jdml = 3
-        presentes_jdml = contar_presentes_puestos(puestos_jdml)
-        linea_presentes_jdml = f"  _(Presentes {presentes_jdml} de {requeridos_jdml})_"
-
-        jdml_seccion = (
-            f"🛡️ *EMPRESA JDML*\n"
-            f"{linea_presentes_jdml}\n\n"
-            f"*Coordinador:* {context.user_data.get('coord_jdml')}\n"
-            f"*Transporte:* {context.user_data.get('transporte_jdml')}\n"
-            f"*Quinta Fides:* {context.user_data.get('quinta_jdml')}"
-        )
-
-    # Construir CSP 24/7 según tipo de guardia y calcular asistencia (Diurna: 4 | Nocturna: 2)
-    if tipo_guardia == "Diurna":
-        puestos_csp = [
-            context.user_data.get('piso4_csp'),
-            context.user_data.get('emergencia_csp'),
-            context.user_data.get('revision_csp'),
-            context.user_data.get('sotano5_csp')
-        ]
-        requeridos_csp = 4
-        presentes_csp = contar_presentes_puestos(puestos_csp)
-        linea_presentes_csp = f"   _(Presentes {presentes_csp} de {requeridos_csp})_"
-
-        csp_seccion = (
-            f"🛡️ *EMPRESA CSP 24/7*\n"
-            f"{linea_presentes_csp}\n\n"
-            f"*Piso 4:* {context.user_data.get('piso4_csp')}\n"
-            f"*Emergencia:* {context.user_data.get('emergencia_csp')}\n"
-            f"*Revisión:* {context.user_data.get('revision_csp')}\n"
-            f"*Sótano 5:* {context.user_data.get('sotano5_csp')}"
-        )
-    else:
-        puestos_csp = [
-            context.user_data.get('revision_csp'),
-            context.user_data.get('sotano5_csp')
-        ]
-        requeridos_csp = 2
-        presentes_csp = contar_presentes_puestos(puestos_csp)
-        linea_presentes_csp = f"   _(Presentes {presentes_csp} de {requeridos_csp})_"
-
-        csp_seccion = (
-            f"🛡️ *EMPRESA CSP 24/7*\n"
-            f"{linea_presentes_csp}\n\n"
-            f"*Revisión:* {context.user_data.get('revision_csp')}\n"
-            f"*Sótano 5:* {context.user_data.get('sotano5_csp')}"
-        )
-
-    texto_reporte = (
-        f"{saludo}\n"
-        f"*Reporte de Servicio*\n"
-        f"*Plantilla de Guardia {tipo_guardia}*\n"
-        f"{fecha_str}\n\n"
-        f"🛡️ *SEGURIDAD INTERNA PCM*\n"
-        f"{linea_presentes_pcm}\n\n"
-        f"{pcm_seccion}\n\n"
-        f"{jdml_seccion}\n\n"
-        f"{csp_seccion}\n\n"
-        f"*Novedades en Recepción:*\n{novedades}"
-    )
-
-    texto_encoded = urllib.parse.quote(texto_reporte)
-    url_whatsapp = f"https://wa.me/?text={texto_encoded}"
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Compartir en WhatsApp", url=url_whatsapp)],
-        [InlineKeyboardButton("Nuevo Reporte", callback_data="volver_menu")]
-    ])
-
-    await msg_obj.reply_text(f"📋 *REPORTE GENERADO:*\n\n{texto_reporte}", reply_markup=keyboard, parse_mode="Markdown")
-    return ConversationHandler.END
-
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Reporte de Plantilla cancelado.")
-    return ConversationHandler.END
-
-# Exportación del Handler
-plantilla_handler = ConversationHandler(
-    entry_points=[
-        CommandHandler('plantilla', iniciar_plantilla),
-        CallbackQueryHandler(iniciar_plantilla, pattern='^iniciar_plantilla$')
-    ],
-    states={
-        TIPO_GUARDIA: [CallbackQueryHandler(seleccionar_tipo_guardia)],
-        CANT_TITULARES: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_cant_titulares)],
-        NOMBRES_TITULARES: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_nombre_titular)],
-        CANT_ESPECIALES: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_cant_especiales)],
-        NOMBRES_ESPECIALES: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_nombre_especial)],
-        TIENE_LIBRES: [CallbackQueryHandler(respuesta_tiene_libres)],
-        CANT_LIBRES: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_cant_libres)],
-        NOMBRES_LIBRES: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_nombre_libre)],
-        TIENE_AUSENTES: [CallbackQueryHandler(respuesta_tiene_ausentes)],
-        CANT_AUSENTES: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_cant_ausentes)],
-        NOMBRES_AUSENTES: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_nombre_ausente)],
-        TIENE_VACACIONES: [CallbackQueryHandler(respuesta_tiene_vacaciones)],
-        CANT_VACACIONES: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_cant_vacaciones)],
-        NOMBRES_VACACIONES: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_nombre_vacacion)],
-        COORD_JDML: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_coord_jdml)],
-        POS_TRANSPORTE_JDML: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_transporte_jdml)],
-        POS_PROVEEDORES_JDML: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_proveedores_jdml)],
-        POS_QUINTA_JDML: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_quinta_jdml)],
-        POS_PISO2_JDML: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_piso2_jdml)],
-        POS_CTRL_PCM_JDML: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_ctrl_pcm_jdml)],
-        POS_CTRL_CORTIJOS_JDML: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_ctrl_cortijos_jdml)],
-        POS_PISO4_CSP: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_piso4_csp)],
-        POS_EMERGENCIA_CSP: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_emergencia_csp)],
-        POS_REVISION_CSP: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_revision_csp)],
-        POS_SOTANO5_CSP: [MessageHandler(filters.TEXT & ~filters.COMMAND, pedir_novedades_plantilla)],
-        NOVEDADES: [
-            CallbackQueryHandler(generar_reporte_plantilla),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, generar_reporte_plantilla)
-        ],
-    },
-    fallbacks=[CommandHandler('cancel', cancel)]
-)
+        await update.message.reply_text("
