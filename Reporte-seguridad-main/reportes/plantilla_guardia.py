@@ -38,7 +38,7 @@ def obtener_saludo_y_fecha():
     dia_nombre = DÍAS[ahora.weekday()]
     mes_nombre = MESES[ahora.month - 1]
     fecha_str = f"*{dia_nombre}, {ahora.day} de {mes_nombre}*"
-    return saludo, fecha_str
+    return saludo, fecha_str, ahora.weekday()
 
 # --- INICIO Y TIPO DE GUARDIA ---
 
@@ -364,8 +364,14 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
         novedades = update.message.text.strip()
         msg_obj = update.message
 
-    saludo, fecha_str = obtener_saludo_y_fecha()
+    saludo, fecha_str, dia_semana = obtener_saludo_y_fecha()
     tipo_guardia = context.user_data.get('tipo_guardia', 'Diurna')
+
+    # Calcular personal requerido según tipo de guardia y día de la semana (5 = Sábado, 6 = Domingo)
+    if tipo_guardia == "Nocturna":
+        requeridos = 6
+    else:
+        requeridos = 7 if dia_semana >= 5 else 8
 
     def fmt_lista(lista):
         return "\n".join([f"- {nombre}" for nombre in lista])
@@ -382,6 +388,10 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
     especiales = context.user_data.get('especiales', [])
     if especiales:
         pcm_bloques.append(f"*Guardias Especiales:*\n{fmt_lista(especiales)}")
+
+    # Total presentes (Titulares + Guardias Especiales)
+    total_presentes = len(titulares) + len(especiales)
+    linea_presentes = f"     _(Presentes {total_presentes} de {requeridos})_"
 
     libres = context.user_data.get('libres', [])
     if libres:
@@ -439,6 +449,7 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
         f"*Plantilla de Guardia {tipo_guardia}*\n"
         f"{fecha_str}\n\n"
         f"🛡️ *SEGURIDAD INTERNA PCM*\n"
+        f"{linea_presentes}\n\n"
         f"{pcm_seccion}\n\n"
         f"{jdml_seccion}\n\n"
         f"{csp_seccion}\n\n"
