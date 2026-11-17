@@ -379,18 +379,18 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
     def fmt_lista(lista):
         return "\n".join([f"- {nombre}" for nombre in lista])
 
-    # Bloques PCM
+    # Bloques PCM con cantidades en formato de dos dígitos (:02d)
     pcm_bloques = []
 
     titulares = context.user_data.get('titulares', [])
     if titulares:
-        pcm_bloques.append(f"*Operadores Titulares Presentes:*\n{fmt_lista(titulares)}")
+        pcm_bloques.append(f"*Operadores Titulares Presentes ({len(titulares):02d}):*\n{fmt_lista(titulares)}")
     else:
-        pcm_bloques.append("*Operadores Titulares Presentes:*\n- Ninguno")
+        pcm_bloques.append("*Operadores Titulares Presentes (00):*\n- Ninguno")
 
     especiales = context.user_data.get('especiales', [])
     if especiales:
-        pcm_bloques.append(f"*Guardias Especiales:*\n{fmt_lista(especiales)}")
+        pcm_bloques.append(f"*Guardias Especiales ({len(especiales):02d}):*\n{fmt_lista(especiales)}")
 
     # Total presentes: Titulares + Guardias Especiales + 1 (Supervisor)
     total_presentes = len(titulares) + len(especiales) + 1
@@ -398,15 +398,15 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
 
     libres = context.user_data.get('libres', [])
     if libres:
-        pcm_bloques.append(f"*Personal Libre:*\n{fmt_lista(libres)}")
+        pcm_bloques.append(f"*Personal Libre ({len(libres):02d}):*\n{fmt_lista(libres)}")
 
     ausentes = context.user_data.get('ausentes', [])
     if ausentes:
-        pcm_bloques.append(f"*Personal Ausente:*\n{fmt_lista(ausentes)}")
+        pcm_bloques.append(f"*Personal Ausente ({len(ausentes):02d}):*\n{fmt_lista(ausentes)}")
 
     vacaciones = context.user_data.get('vacaciones', [])
     if vacaciones:
-        pcm_bloques.append(f"*Personal de Vacaciones:*\n{fmt_lista(vacaciones)}")
+        pcm_bloques.append(f"*Personal de Vacaciones ({len(vacaciones):02d}):*\n{fmt_lista(vacaciones)}")
 
     pcm_seccion = "\n\n".join(pcm_bloques)
 
