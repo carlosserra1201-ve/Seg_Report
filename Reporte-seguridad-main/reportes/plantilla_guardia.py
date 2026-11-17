@@ -367,15 +367,18 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
     saludo, fecha_str, dia_semana = obtener_saludo_y_fecha()
     tipo_guardia = context.user_data.get('tipo_guardia', 'Diurna')
 
-    # Calcular personal requerido (5 = Sábado, 6 = Domingo)
+    # Calcular personal requerido PCM (5 = Sábado, 6 = Domingo)
     # Nocturno: 7 | Diurno Fin de Semana: 8 | Diurno Lunes a Viernes: 9
     if tipo_guardia == "Nocturna":
-        requeridos = 7
+        requeridos_pcm = 7
     else:
-        requeridos = 8 if dia_semana >= 5 else 9
+        requeridos_pcm = 8 if dia_semana >= 5 else 9
 
     def fmt_lista(lista):
         return "\n".join([f"- {nombre}" for nombre in lista])
+
+    def contar_presentes_puestos(lista_puestos):
+        return sum(1 for puesto in lista_puestos if "ausente" not in (puesto or "").lower())
 
     # Bloques PCM con cantidades en formato de dos dígitos (:02d)
     pcm_bloques = []
@@ -390,9 +393,9 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
     if especiales:
         pcm_bloques.append(f"*Guardias Especiales ({len(especiales):02d}):*\n{fmt_lista(especiales)}")
 
-    # Total presentes: únicamente Titulares + Guardias Especiales
-    total_presentes = len(titulares) + len(especiales)
-    linea_presentes = f"     _(Presentes {total_presentes} de {requeridos})_"
+    # Total presentes PCM: únicamente Titulares + Guardias Especiales
+    total_presentes_pcm = len(titulares) + len(especiales)
+    linea_presentes_pcm = f"     _(Presentes {total_presentes_pcm} de {requeridos_pcm})_"
 
     libres = context.user_data.get('libres', [])
     if libres:
@@ -408,10 +411,24 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
 
     pcm_seccion = "\n\n".join(pcm_bloques)
 
-    # Construir JDML según tipo de guardia (Nombres al lado de la posición)
+    # Construir JDML según tipo de guardia y calcular asistencia (Diurna: 7 | Nocturna: 3)
     if tipo_guardia == "Diurna":
+        puestos_jdml = [
+            context.user_data.get('coord_jdml'),
+            context.user_data.get('transporte_jdml'),
+            context.user_data.get('proveedores_jdml'),
+            context.user_data.get('quinta_jdml'),
+            context.user_data.get('piso2_jdml'),
+            context.user_data.get('ctrl_pcm_jdml'),
+            context.user_data.get('ctrl_cortijos_jdml')
+        ]
+        requeridos_jdml = 7
+        presentes_jdml = contar_presentes_puestos(puestos_jdml)
+        linea_presentes_jdml = f"  _(Presentes {presentes_jdml} de {requeridos_jdml})_"
+
         jdml_seccion = (
             f"🛡️ *EMPRESA JDML*\n"
+            f"{linea_presentes_jdml}\n\n"
             f"*Coordinador:* {context.user_data.get('coord_jdml')}\n"
             f"*Transporte:* {context.user_data.get('transporte_jdml')}\n"
             f"*Proveedores:* {context.user_data.get('proveedores_jdml')}\n"
@@ -421,25 +438,55 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
             f"*Controlador Los Cortijos:* {context.user_data.get('ctrl_cortijos_jdml')}"
         )
     else:
+        puestos_jdml = [
+            context.user_data.get('coord_jdml'),
+            context.user_data.get('transporte_jdml'),
+            context.user_data.get('quinta_jdml')
+        ]
+        requeridos_jdml = 3
+        presentes_jdml = contar_presentes_puestos(puestos_jdml)
+        linea_presentes_jdml = f"  _(Presentes {presentes_jdml} de {requeridos_jdml})_"
+
         jdml_seccion = (
             f"🛡️ *EMPRESA JDML*\n"
+            f"{linea_presentes_jdml}\n\n"
             f"*Coordinador:* {context.user_data.get('coord_jdml')}\n"
             f"*Transporte:* {context.user_data.get('transporte_jdml')}\n"
             f"*Quinta Fides:* {context.user_data.get('quinta_jdml')}"
         )
 
-    # Construir CSP 24/7 según tipo de guardia (Nombres al lado de la posición)
+    # Construir CSP 24/7 según tipo de guardia y calcular asistencia (Diurna: 4 | Nocturna: 2)
     if tipo_guardia == "Diurna":
+        puestos_csp = [
+            context.user_data.get('piso4_csp'),
+            context.user_data.get('emergencia_csp'),
+            context.user_data.get('revision_csp'),
+            context.user_data.get('sotano5_csp')
+        ]
+        requeridos_csp = 4
+        presentes_csp = contar_presentes_puestos(puestos_csp)
+        linea_presentes_csp = f"   _(Presentes {presentes_csp} de {requeridos_csp})_"
+
         csp_seccion = (
             f"🛡️ *EMPRESA CSP 24/7*\n"
+            f"{linea_presentes_csp}\n\n"
             f"*Piso 4:* {context.user_data.get('piso4_csp')}\n"
             f"*Emergencia:* {context.user_data.get('emergencia_csp')}\n"
             f"*Revisión:* {context.user_data.get('revision_csp')}\n"
             f"*Sótano 5:* {context.user_data.get('sotano5_csp')}"
         )
     else:
+        puestos_csp = [
+            context.user_data.get('revision_csp'),
+            context.user_data.get('sotano5_csp')
+        ]
+        requeridos_csp = 2
+        presentes_csp = contar_presentes_puestos(puestos_csp)
+        linea_presentes_csp = f"   _(Presentes {presentes_csp} de {requeridos_csp})_"
+
         csp_seccion = (
             f"🛡️ *EMPRESA CSP 24/7*\n"
+            f"{linea_presentes_csp}\n\n"
             f"*Revisión:* {context.user_data.get('revision_csp')}\n"
             f"*Sótano 5:* {context.user_data.get('sotano5_csp')}"
         )
@@ -450,7 +497,7 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
         f"*Plantilla de Guardia {tipo_guardia}*\n"
         f"{fecha_str}\n\n"
         f"🛡️ *SEGURIDAD INTERNA PCM*\n"
-        f"{linea_presentes}\n\n"
+        f"{linea_presentes_pcm}\n\n"
         f"{pcm_seccion}\n\n"
         f"{jdml_seccion}\n\n"
         f"{csp_seccion}\n\n"
