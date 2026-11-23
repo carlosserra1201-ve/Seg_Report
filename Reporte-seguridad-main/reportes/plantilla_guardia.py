@@ -562,8 +562,31 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
     await msg_obj.reply_text(f"📋 *REPORTE GENERADO:*\n\n{texto_reporte}", reply_markup=keyboard, parse_mode="Markdown")
     return ConversationHandler.END
 
+# --- CANCELACIÓN Y REINICIO ---
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
     await update.message.reply_text("Reporte de Plantilla cancelado.")
+    return ConversationHandler.END
+
+async def salir_al_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Permite abortar el reporte actual y volver al menú principal si se presiona /start o un botón de menú."""
+    context.user_data.clear()
+    if update.callback_query:
+        await update.callback_query.answer()
+        msg_obj = update.callback_query.message
+    else:
+        msg_obj = update.message
+
+    keyboard = [
+        [InlineKeyboardButton("📋 Reporte de Plantilla", callback_data="iniciar_plantilla")],
+        [InlineKeyboardButton("💰 Traslado de Valores", callback_data="iniciar_traslado")]
+    ]
+    await msg_obj.reply_text(
+        "Operación anterior cancelada.\n*Menú Principal:* Seleccione el reporte que desea realizar:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
     return ConversationHandler.END
 
 # Exportación del Handler
@@ -606,5 +629,12 @@ plantilla_handler = ConversationHandler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, generar_reporte_plantilla)
         ],
     },
-    fallbacks=[CommandHandler('cancel', cancel)]
+    fallbacks=[
+        CommandHandler('cancel', cancel),
+        CommandHandler('start', salir_al_menu),
+        CallbackQueryHandler(salir_al_menu, pattern='^volver_menu$'),
+        CommandHandler('plantilla', iniciar_plantilla),
+        CallbackQueryHandler(iniciar_plantilla, pattern='^iniciar_plantilla$')
+    ],
+    allow_reentry=True
 )
