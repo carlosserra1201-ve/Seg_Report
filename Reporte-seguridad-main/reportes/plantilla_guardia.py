@@ -55,7 +55,6 @@ def determinar_cargo_responsable(nombre_ingresado: str) -> tuple[str, str]:
     elif clave in COORDINADORES_OFICIALES:
         return COORDINADORES_OFICIALES[clave], "Coordinador de Seguridad"
     else:
-        # Capitaliza cada palabra si es un operador externo a las listas
         nombre_formateado = " ".join(palabra.capitalize() for palabra in nombre_ingresado.strip().split())
         return nombre_formateado, "Operador de Seguridad"
 
@@ -472,10 +471,17 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
     def contar_presentes_puestos(lista_puestos):
         return sum(1 for puesto in lista_puestos if "ausente" not in (puesto or "").lower())
 
+    # Deduplicación: si el responsable fue agregado también en Titulares, se filtra de Titulares
+    clave_responsable = normalizar_texto(resp_nombre)
+    titulares_raw = context.user_data.get('titulares', [])
+    titulares = [
+        t for t in titulares_raw
+        if normalizar_texto(t) != clave_responsable
+    ]
+
     # Bloques PCM con cantidades en formato de dos dígitos (:02d)
     pcm_bloques = []
 
-    titulares = context.user_data.get('titulares', [])
     if titulares:
         pcm_bloques.append(f"*Operadores Titulares Presentes ({len(titulares):02d}):*\n{fmt_lista(titulares)}")
     else:
@@ -485,9 +491,16 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
     if especiales:
         pcm_bloques.append(f"*Guardias Especiales ({len(especiales):02d}):*\n{fmt_lista(especiales)}")
 
-    # Total presentes PCM: únicamente Titulares + Guardias Especiales
-    total_presentes_pcm = len(titulares) + len(especiales)
+    # Total presentes PCM: Responsable (1) + Titulares filtrados + Guardias Especiales
+    total_presentes_pcm = 1 + len(titulares) + len(especiales)
     linea_presentes_pcm = f"     _(Presentes {total_presentes_pcm} de {requeridos_pcm})_"
+
+    # Bloque del Responsable del Servicio (aparece justo debajo del conteo de PCM)
+    bloque_responsable = (
+        f"*Responsable del Servicio:*\n"
+        f"{resp_nombre}\n"
+        f"{resp_cargo}"
+    )
 
     libres = context.user_data.get('libres', [])
     if libres:
@@ -594,10 +607,10 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
         f"*Reporte de Servicio*\n"
         f"*Plantilla de Guardia {tipo_guardia}*\n"
         f"{fecha_str}\n"
-        f"*Responsable:* {resp_nombre} ({resp_cargo})\n"
         f"{separador}\n"
         f"🛡️ *SEGURIDAD INTERNA PCM*\n"
         f"{linea_presentes_pcm}\n\n"
+        f"{bloque_responsable}\n\n"
         f"{pcm_seccion}\n\n"
         f"{jdml_seccion}\n\n"
         f"{csp_seccion}\n"
