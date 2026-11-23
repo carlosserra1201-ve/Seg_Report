@@ -1,4 +1,5 @@
 import urllib.parse
+import unicodedata
 from datetime import datetime
 import zoneinfo
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -7,8 +8,9 @@ from telegram.ext import (
     filters, ContextTypes, ConversationHandler
 )
 
-# Estados de la conversación (29 estados en total)
+# Estados de la conversación (30 estados en total)
 (
+    RESPONSABLE_GUARDIA,
     TIPO_GUARDIA,
     CANT_TITULARES, NOMBRES_TITULARES,
     CANT_ESPECIALES, NOMBRES_ESPECIALES,
@@ -19,10 +21,43 @@ from telegram.ext import (
     COORD_JDML, POS_TRANSPORTE_JDML, POS_PROVEEDORES_JDML, POS_QUINTA_JDML, POS_PISO2_JDML, POS_CTRL_PCM_JDML, POS_CTRL_CORTIJOS_JDML,
     POS_PISO4_CSP, POS_EMERGENCIA_CSP, POS_REVISION_CSP, POS_SOTANO5_CSP,
     NOVEDADES
-) = range(29)
+) = range(30)
 
 DÍAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+
+# Listas maestras de cargos (clave normalizada sin acentos y en minúsculas -> Nombre oficial)
+SUPERVISORES_OFICIALES = {
+    "jaime temprano": "Jaime Temprano",
+    "fernando paez": "Fernando Páez",
+    "victor bracacio": "Víctor Bracacio",
+    "tony larez": "Tony Larez"
+}
+
+COORDINADORES_OFICIALES = {
+    "carlos serrano": "Carlos Serrano"
+}
+
+def normalizar_texto(texto: str) -> str:
+    """Elimina acentos, espacios extra y convierte a minúsculas para comparar nombres."""
+    texto_limpio = " ".join(texto.strip().lower().split())
+    return ''.join(
+        c for c in unicodedata.normalize('NFD', texto_limpio)
+        if unicodedata.category(c) != 'Mn'
+    )
+
+def determinar_cargo_responsable(nombre_ingresado: str) -> tuple[str, str]:
+    """Valida el nombre y devuelve (Nombre Formateado, Cargo Asignado)."""
+    clave = normalizar_texto(nombre_ingresado)
+    
+    if clave in SUPERVISORES_OFICIALES:
+        return SUPERVISORES_OFICIALES[clave], "Supervisor de Seguridad"
+    elif clave in COORDINADORES_OFICIALES:
+        return COORDINADORES_OFICIALES[clave], "Coordinador de Seguridad"
+    else:
+        # Capitaliza cada palabra si es un operador externo a las listas
+        nombre_formateado = " ".join(palabra.capitalize() for palabra in nombre_ingresado.strip().split())
+        return nombre_formateado, "Operador de Seguridad"
 
 def obtener_saludo_y_fecha():
     tz = zoneinfo.ZoneInfo("America/Caracas")
@@ -41,7 +76,7 @@ def obtener_saludo_y_fecha():
     fecha_str = f"*{dia_nombre}, {ahora.day} de {mes_nombre}*"
     return saludo, fecha_str, ahora.weekday()
 
-# --- INICIO Y TIPO DE GUARDIA ---
+# --- INICIO, RESPONSABLE Y TIPO DE GUARDIA ---
 
 async def iniciar_plantilla(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg_obj = update.message if update.message else update.callback_query.message
@@ -49,6 +84,7 @@ async def iniciar_plantilla(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.callback_query.answer()
 
     # Limpiar datos previos
+    context.user_data.clear()
     context.user_data['titulares'] = []
     context.user_data['especiales'] = []
     context.user_data['libres'] = []
@@ -56,12 +92,27 @@ async def iniciar_plantilla(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['vacaciones'] = []
     context.user_data['permisos'] = []
 
+    await msg_obj.reply_text(
+        "*REPORTE DE PLANTILLA*\n\n"
+        "Escriba el *Nombre y Apellido del Responsable de la Guardia*:",
+        parse_mode="Markdown"
+    )
+    return RESPONSABLE_GUARDIA
+
+async def recibir_responsable_guardia(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    nombre_raw = update.message.text.strip()
+    nombre_oficial, cargo = determinar_cargo_responsable(nombre_raw)
+
+    context.user_data['responsable_nombre'] = nombre_oficial
+    context.user_data['responsable_cargo'] = cargo
+
     keyboard = [
         [InlineKeyboardButton("☀️ Diurna", callback_data="guardia_Diurna")],
         [InlineKeyboardButton("🌙 Nocturna", callback_data="guardia_Nocturna")]
     ]
-    await msg_obj.reply_text(
-        "*REPORTE DE PLANTILLA*\n\nSeleccione el tipo de guardia:",
+    await update.message.reply_text(
+        f"✅ Registrado: *{nombre_oficial}* ({cargo})\n\n"
+        "Seleccione el *tipo de guardia*:",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -405,6 +456,8 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
 
     saludo, fecha_str, dia_semana = obtener_saludo_y_fecha()
     tipo_guardia = context.user_data.get('tipo_guardia', 'Diurna')
+    resp_nombre = context.user_data.get('responsable_nombre', 'No especificado')
+    resp_cargo = context.user_data.get('responsable_cargo', 'Operador de Seguridad')
 
     # Calcular personal requerido PCM (5 = Sábado, 6 = Domingo)
     # Nocturno: 7 | Diurno Fin de Semana: 8 | Diurno Lunes a Viernes: 9
@@ -541,6 +594,7 @@ async def generar_reporte_plantilla(update: Update, context: ContextTypes.DEFAUL
         f"*Reporte de Servicio*\n"
         f"*Plantilla de Guardia {tipo_guardia}*\n"
         f"{fecha_str}\n"
+        f"*Responsable:* {resp_nombre} ({resp_cargo})\n"
         f"{separador}\n"
         f"🛡️ *SEGURIDAD INTERNA PCM*\n"
         f"{linea_presentes_pcm}\n\n"
@@ -570,7 +624,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def salir_al_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Permite abortar el reporte actual y volver al menú principal si se presiona /start o un botón de menú."""
     context.user_data.clear()
     if update.callback_query:
         await update.callback_query.answer()
@@ -596,6 +649,7 @@ plantilla_handler = ConversationHandler(
         CallbackQueryHandler(iniciar_plantilla, pattern='^iniciar_plantilla$')
     ],
     states={
+        RESPONSABLE_GUARDIA: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_responsable_guardia)],
         TIPO_GUARDIA: [CallbackQueryHandler(seleccionar_tipo_guardia)],
         CANT_TITULARES: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_cant_titulares)],
         NOMBRES_TITULARES: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_nombre_titular)],
